@@ -1,0 +1,22 @@
+{
+  "type": "module",
+  "name": "opsocket.js",
+  "version": "1.0.0",
+  "description": "A Fast NodeJS WebSocket Client Library, Designed for Heavy Usage and Abusage.",
+  "main": "OPSocket.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "websocket",
+    "client",
+    "ws",
+    "ws-client",
+    "websocket-client"
+  ],
+  "author": "gamer0mega",
+  "license": "MIT",
+  "repository": {
+      "url": "https://github.com/gamer0mega/opsocket.js"
+  }
+}
