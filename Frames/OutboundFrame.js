@@ -33,7 +33,6 @@ export class OutboundFrame {
           data = Buffer.concat([Buffer.allocUnsafe(2), data]);
           data.writeUInt16BE(closeCode, 0);
         };
-        console.log(data)
         data.copy(frame, offset);
 
         this.frame = frame;
