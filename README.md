@@ -2,7 +2,7 @@
 ## What is OPSocket?
 OPSocket is a Fast WebSocket Client for NodeJS, Designed for Heavy Usage and Abusage.
 ## How to Use it?
-You Can take a look at the WebSocket Class in Our Docs to see usage examples.
+You Can take a look at the WebSocket Class in Our Docs at https://opsocket.bruhbot.rocks to see usage examples.
 ## Support
 Feel free to join our [Discord Community and Support Server](https://discord.gg/jnzkPmukuv).
 
