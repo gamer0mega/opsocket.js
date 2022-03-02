@@ -24,9 +24,9 @@ class CloseError extends BaseError {
     };
 };
 
-class SocketError extends Error {
+class SocketError extends BaseError {
     constructor(code, reason) {
-        super();
+        super(reason || code);
         this.reason = reason;
         this.code = code;
         this.isError = true;

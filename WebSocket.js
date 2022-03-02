@@ -302,7 +302,7 @@ export class WebSocket {
 
     performCloseState() {
         if(this.requestSocket) {
-            this.requestSocket.destroy('WebSocket End.');
+            this.requestSocket.destroy(false);
             delete this.requestSocket;
         };
         this.state = ConnectionStates.Closed;

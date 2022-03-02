@@ -68,6 +68,8 @@ const DataTypes = {
     Binary: 1
 };
 
+const Byte = 255;
+
 export {
     BinaryHelpers,
     OPCodes,
@@ -75,5 +77,6 @@ export {
     FrameStates,
     DefaultCloseDescriptions,
     SupportedProtocols,
-    DataTypes
+    DataTypes,
+    Byte
 };
