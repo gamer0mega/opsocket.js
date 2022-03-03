@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "opsocket.js",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "A Fast NodeJS WebSocket Client Library, Designed for Heavy Usage and Abusage.",
   "main": "OPSocket.js",
   "scripts": {
