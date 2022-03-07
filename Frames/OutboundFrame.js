@@ -4,7 +4,8 @@ import { FrameMask } from "../Utilities/FrameMask.js";
 export class OutboundFrame {
     constructor(opcode, data, closeCode = 1005) {
         if(!(data instanceof Buffer)) data = Buffer.from(data);
-        let isClose = this.opcode === OPCodes.SocketClose,
+        
+        let isClose = opcode === OPCodes.SocketClose,
             length = data.length + (isClose ? 2 : 0),
             header = (length <= 125) ? 2 : (length <= 65535 ? 4 : 10),
             offset = header + 4,
