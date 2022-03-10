@@ -271,6 +271,13 @@ export class WebSocket {
 
     close(closeCode = 1000, reason = '') {
         return new Promise((resolve, reject) => {
+            switch(this.state) {
+                case ConnectionStates.Handshaking:
+                case ConnectionStates.Closing:
+                    this.abort(reason, closeCode);
+                case ConnectionStates.Closed:
+                    return resolve();
+            };
             this.closeResolve = resolve;
             this.closeReject = reject;
             this.startCloseTimeout();
@@ -353,6 +360,7 @@ export class WebSocket {
 
     emitClose(code = 1005, reason) {
         clearTimeout(this.closeTimeout);
+        clearTimeout(this.timeout);
         if(!reason?.length) reason = Buffer.from(DefaultCloseDescriptions[code] || '');
         if(this.asyncIterator) onClose?.(new CloseError(code, reason))
         else /**
