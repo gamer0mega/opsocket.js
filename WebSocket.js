@@ -1,6 +1,7 @@
 import { request } from 'https';
+import { createHash } from 'crypto';
 import { BufferList } from './Utilities/BufferList.js';
-import { ConnectionStates, DataTypes, DefaultCloseDescriptions, FrameStates, OPCodes, SupportedProtocols } from './Constants.js';
+import { ConnectionStates, DataTypes, DefaultCloseDescriptions, FrameStates, HeaderConcatNonce, OPCodes, SupportedProtocols } from './Constants.js';
 import { BaseFrame } from './Frames/Frame.js';
 import { DataFrame } from './Frames/DataFrame.js';
 import { OutboundFrame } from './Frames/OutboundFrame.js';
@@ -183,6 +184,7 @@ export class WebSocket {
                     if(validation != true) {
                         reject(validation);
                         this.abort(validation);
+                        return;
                     };
                     this.socket = socket;
                     this.state = ConnectionStates.Open;
@@ -196,9 +198,10 @@ export class WebSocket {
                     this.dispatchEvent('open', this);
                     try {
                         for await (const chunk of socket) {
-                            this.handleSocketData(chunk);
+                           this.handleSocketData(chunk);
                         };
                     } catch(error) {
+                        if(error.stack.includes('handleSocketData')) throw error;
                         return this.abort(error);
                     };
                     if(this.state != ConnectionStates.Closing && this.state != ConnectionStates.Closed) this.abort('Unexpected TLSSocket Readable Stream End.');
@@ -208,9 +211,15 @@ export class WebSocket {
 
     validateHandshake(response) {
         if(response.statusCode != 101) return 'Unexpected WebSocket Server Opening Handshake Status Code - ' + response.statusCode + ' (101 Switching Protocols Expected)';
-        if(!response.headers) return 'Missing Headers in The Opening Handshake.';
-        if(response.headers.connection?.toLowerCase() != 'upgrade') return 'Expected a "connection: upgrade" header in The Opening Handshake.';
-        if(response.headers.upgrade?.toLowerCase() != 'websocket') return 'Expected a "upgrade: websocket" header in The Opening Handshake.';
+        let { headers } = response;
+        if(!headers) return 'Missing Headers in The Opening Handshake.';
+        if(headers.connection?.toLowerCase() != 'upgrade') return 'Expected a "connection: upgrade" header in The Opening Handshake.';
+        if(headers.upgrade?.toLowerCase() != 'websocket') return 'Expected a "upgrade: websocket" header in The Opening Handshake.';
+        let sha1 = createHash('sha1');
+        sha1.update(this.nonce + HeaderConcatNonce);
+        this.expectedNonce = sha1.digest('base64');
+        this.actualNonce = headers['sec-websocket-accept'];
+        if(this.actualNonce != this.expectedNonce) return 'Expected "' + this.expectedNonce + '" as The Response Nonce, But Received "' + this.actualNonce + '" in The Opening Handshake.'
         return true;
     };
 
@@ -271,6 +280,8 @@ export class WebSocket {
 
     close(closeCode = 1000, reason = '') {
         return new Promise((resolve, reject) => {
+            let validation = this.validateCloseCode(closeCode);
+            if(validation != true) return reject(new RangeError('Invalid Close Code - ' + closeCode + ' - ' + validation));
             switch(this.state) {
                 case ConnectionStates.Handshaking:
                 case ConnectionStates.Closing:
@@ -281,8 +292,25 @@ export class WebSocket {
             this.closeResolve = resolve;
             this.closeReject = reject;
             this.startCloseTimeout();
-            return this.write(OPCodes.SocketClose, reason, closeCode);
+            return this.write(OPCodes.SocketClose, reason, +closeCode);
         });
+    };
+
+    validateCloseCode(code) {
+        if(isNaN(code)) return 'The Close Code Must be a Number.';
+        if(code < 1000 || code >= 5000) return 'Out of The Allowed Range - Cannot be below 1000 or above 5000.'
+        else if(code >= 1000 && code < 2000) {
+            switch(code) {
+                case 1004:
+                case 1005:
+                case 1006:
+                    return 'These Close Codes can only be Generated Locally and not Sent to The Remote Peer.';
+                default:
+                    return true;
+            };
+        } else if(code >= 2000 && code < 3000) return 'The Close Codes between 1000 and 2000 are reserved by The WebSocket Protocol.'
+        else if(code >= 3000 && code < 5000) return true;
+        return 'Unknown Close Code.';
     };
 
     /**
@@ -341,6 +369,7 @@ export class WebSocket {
     };
 
     handleSocketData(data) {
+        if(this.state === ConnectionStates.Closed) return;
         this.bufferList.write(data);
         this.handleFrames();
     };
@@ -383,9 +412,9 @@ export class WebSocket {
     };
 
     handleFrames() {
-        if(this.currentFrame.state === FrameStates.Finalized) this.currentFrame = new BaseFrame(this.frameHeader);
         let frame = this.currentFrame;
         if (!frame.push(this.bufferList)) return;
+        this.currentFrame = new BaseFrame(this.frameHeader);
         /**
          * Gets Emitted when The WebSocket receives a Frame.
          * @event frame
@@ -409,6 +438,11 @@ export class WebSocket {
                     delete this.closeResolve;
                 };
                 this.endSocket();
+                let validation = this.validateCloseCode(frame.code);
+                if(validation != true) {
+                    frame.code = 1002;
+                    frame.reason = validation;
+                };
                 this.emitClose(frame.code, frame.reason);
                 break;
             case OPCodes.Ping:
