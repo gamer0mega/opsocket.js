@@ -29,15 +29,24 @@ export class WebSocket {
      * @param [options.events] - An Object Containing all The Events. The addListener and on methods do use this object too. See The Events tab for all The Events.
      * @param [options.timeout] - The WebSocket Handshake Time until aborting.
      * @param [options.asyncIterator] - Whether to use Async Iterator over emit.
-     * @property frameHeader { Buffer } - The Latest WebSocket Frame Header.
-     * @property bufferList { BufferList } - A List of Frame Buffers to process.
-     * @property currentFrame { BaseFrame } - The Current Frame Being Processed.
-     * @property handleFramesBind { Function } - A Bind to the handleFrames Method.
-     * @property url? { URL } - The WebSocket URL to Connect to.
-     * @property events { Object } - An Object Containing all the events.
-     * @property asyncIterator { Boolean } - Whether to use Async Iterator over emit.
-     * @property state { Number } - The WebSocket Connection State. Refer to Constants for more information.
-     * @property requestTimeout { Number } - The Time until The Connection will Get aborted if The Handshake was not completed.
+     * @property status { Number } - The Current WebSocket Connection Status.
+     * @property sockets.request? { ClientRequest } - The Initial WebSocket Request.
+     * @property sockets.tls? { TLSSocket } - The Underlying TLS Socket Which Handles The WebSocket.
+     * @property frames.bufferList { BufferList } - The BufferList which Handles all The Socket Data.
+     * @property frames.header { Buffer } - The Current Frame Header.
+     * @property frames.current { BaseFrame } - The Current Frame Being Processed.
+     * @property remote.ip? { String } - The Remote WebSocket Server IP.
+     * @property remote.port? { Number } - The Remote WebSocket Server Port.
+     * @property nonceData.initial? { String } - The Initial WebSocket Nonce sent.
+     * @property nonceData.responseExpected? { String } - The Expected Nonce to be Received From The Server.
+     * @property nonceData.responseActual? { String } - The Actual Nonce Received From The Server.
+     * @property options.requestTimeout { Number } - The Initial Request Timeout in Milliseconds.
+     * @property options.events { Object } - An Object Containing All The Event Functions.
+     * @property options.asyncIterator { Boolean } - Whether to use Async Iterator For The Message Event over emit.
+     * @property options.url? { URL } - The Parsed WebSocket Server URL.
+     * @property timers.open? { Timeout } - The Open Handshake Timeout.
+     * @property timers.close? { Timeout } - The Close Handshake Timeout.
+     * @property handleFramesBind { Function } - A Bind to the handleFrames function.
      * @example
      * // Async Iterator.
      * import { WebSocket } from 'opsocket.js';
@@ -120,16 +129,54 @@ export class WebSocket {
         if(typeof(options) === 'string') options = {
             url: options
         };
-        this.frameHeader = Buffer.allocUnsafe(10);
-        this.asyncIterator = options.asyncIterator;
-        if(this.asyncIterator) resetLock();
-        this.bufferList = new BufferList();
-        this.currentFrame = new BaseFrame(this.frameHeader);
-        this.handleFramesBind = this.handleFrames.bind(this);
-        this.events = options.events || {};
-        this.state = ConnectionStates.Closed;
-        this.requestTimeout = options.timeout || 15000;
-        if(options.url) this.url = new URL(options.url);
+        this.status = ConnectionStates.Closed;
+        Object.defineProperties(this, {
+            sockets: {
+                value: {},
+                enumerable: false
+            },
+            frames: {
+                value: {
+                    bufferList: new BufferList(),
+                    header: Buffer.allocUnsafe(10),
+                    current: null
+                },
+                enumerable: false
+            },
+            remote: {
+                value: {},
+                enumerable: false,
+                writable: true
+            },
+            nonceData: {
+                value: {
+                    initial: '',
+                    responseExpected: '',
+                    responseActual: ''
+                },
+                enumerable: false
+            },
+            options: {
+                value: {
+                    requestTimeout: options.timeout || 15000,
+                    events: options.events || {},
+                    asyncIterator: !!options.asyncIterator,
+                    url: {}
+                },
+                enumerable: false
+            },
+            timers: {
+                value: {},
+                enumerable: false
+            },
+            handleFramesBind: {
+                value: this.handleFrames.bind(this),
+                enumerable: false
+            }
+        });
+        this.frames.current = new BaseFrame(this.frames.header);
+        if(this.options.asyncIterator) resetLock();
+        if(options.url) this.options.url = new URL(options.url);
     };
 
     /**
@@ -142,33 +189,33 @@ export class WebSocket {
 
     open(url) {
         return new Promise((resolve, reject) => {
-            if(this.state != ConnectionStates.Closed) return reject(new Error('Cannot open a WebSocket while it is not Closed.'));
+            if(this.status != ConnectionStates.Closed) return reject(new Error('Cannot open a WebSocket while it is not Closed.'));
             try {
-                this.nonce = GenerateNonce();
-                if(url) this.url = new URL(url);
-                if(!this.url) return reject(new URIError('No WebSocket Server URL Was Passed.'));
-                if(!SupportedProtocols.includes(this.url.protocol)) return reject(new URIError('Unknown Protocol - ' + this.url.protocol));
-                if(this.socket) delete this.socket;
-                this.state = ConnectionStates.Handshaking;
-                this.requestSocket = request({
+                this.nonceData.initial = GenerateNonce();
+                if(url) this.options.url = new URL(url);
+                if(!this.options.url) return reject(new URIError('No WebSocket Server URL Was Passed.'));
+                if(!SupportedProtocols.includes(this.options.url.protocol)) return reject(new URIError('Unknown Protocol - ' + this.options.url.protocol));
+                if(this.sockets.tls) delete this.sockets.tls;
+                this.status = ConnectionStates.Handshaking;
+                this.sockets.request = request({
                     method: 'GET',
-                    host: this.url.host,
-                    url: this.url.href,
+                    host: this.options.url.host,
+                    url: this.options.url.href,
                     headers: {
-                        host: this.url.host,
+                        host: this.options.url.host,
                         upgrade: 'WebSocket',
                         connection: 'upgrade',
-                        'sec-websocket-key': this.nonce,
+                        'sec-websocket-key': this.nonceData.initial,
                         'sec-websocket-version': 13
                     }
                 });
-                this.requestSocket.end();
+                this.sockets.request.end();
             } catch(error) {
                 reject(error);
                 this.abort(error);
             };
             this.startTimeout();
-            this.requestSocket
+            this.sockets.request
                 .on('response', response => {
                     let validation = this.validateHandshake(response);
                     if(validation != true) {
@@ -186,10 +233,14 @@ export class WebSocket {
                         this.abort(validation);
                         return;
                     };
-                    this.socket = socket;
-                    this.state = ConnectionStates.Open;
+                    this.sockets.tls = socket;
+                    this.remote = {
+                        ip: socket.remoteAddress,
+                        port: socket.remotePort
+                    };
+                    this.status = ConnectionStates.Open;
                     resolve(this);
-                    clearTimeout(this.timeout);
+                    clearTimeout(this.timers.open);
                     /**
                      * Gets Emitted when The WebSocket gets Open.
                      * @event open
@@ -204,7 +255,7 @@ export class WebSocket {
                         if(error.stack.includes('handleSocketData')) throw error;
                         return this.abort(error);
                     };
-                    if(this.state != ConnectionStates.Closing && this.state != ConnectionStates.Closed) this.abort('Unexpected TLSSocket Readable Stream End.');
+                    if(this.status != ConnectionStates.Closing && this.status != ConnectionStates.Closed) this.abort('Unexpected TLSSocket Readable Stream End.');
                 });
         });
     };
@@ -216,21 +267,21 @@ export class WebSocket {
         if(headers.connection?.toLowerCase() != 'upgrade') return 'Expected a "connection: upgrade" header in The Opening Handshake.';
         if(headers.upgrade?.toLowerCase() != 'websocket') return 'Expected a "upgrade: websocket" header in The Opening Handshake.';
         let sha1 = createHash('sha1');
-        sha1.update(this.nonce + HeaderConcatNonce);
-        this.expectedNonce = sha1.digest('base64');
-        this.actualNonce = headers['sec-websocket-accept'];
-        if(this.actualNonce != this.expectedNonce) return 'Expected "' + this.expectedNonce + '" as The Response Nonce, But Received "' + this.actualNonce + '" in The Opening Handshake.'
+        sha1.update(this.nonceData.initial + HeaderConcatNonce);
+        this.nonceData.responseExpected = sha1.digest('base64');
+        this.nonceData.responseActual = headers['sec-websocket-accept'];
+        if(this.nonceData.responseActual != this.nonceData.responseExpected) return 'Expected "' + this.nonceData.responseExpected + '" as The Response Nonce, But Received "' + this.nonceData.responseActual + '" in The Opening Handshake.'
         return true;
     };
 
     startTimeout() {
-        clearTimeout(this.timeout);
-        this.timeout = setTimeout(() => this.abort('WebSocket Handshake Timed out.'), this.requestTimeout);
+        clearTimeout(this.timers.open);
+        this.timers.open = setTimeout(() => this.abort('WebSocket Handshake Timed out.'), this.options.requestTimeout);
     };
 
     startCloseTimeout() {
-        clearTimeout(this.closeTimeout);
-        this.closeTimeout = setTimeout(() => this.abort('WebSocket Close Timed Out.'), 5000);
+        clearTimeout(this.timers.close);
+        this.timers.close = setTimeout(() => this.abort('WebSocket Close Timed Out.'), 5000);
     };
 
     /**
@@ -282,7 +333,7 @@ export class WebSocket {
         return new Promise((resolve, reject) => {
             let validation = this.validateCloseCode(closeCode);
             if(validation != true) return reject(new RangeError('Invalid Close Code - ' + closeCode + ' - ' + validation));
-            switch(this.state) {
+            switch(this.status) {
                 case ConnectionStates.Handshaking:
                 case ConnectionStates.Closing:
                     this.abort(reason, closeCode);
@@ -324,7 +375,7 @@ export class WebSocket {
      */
 
     abort(reason = 'Unknown Abnormal Connection Abort', code = 1006) {
-        if(this.socket?.ended) return false;
+        if(this.sockets.tls?.ended) return false;
         if(!this.endSocket()) this.performCloseState();
         this.emitClose(code, reason);
         this.emitFailure(reason);
@@ -337,18 +388,18 @@ export class WebSocket {
     };
 
     performCloseState() {
-        if(this.requestSocket) {
-            this.requestSocket.destroy(false);
-            delete this.requestSocket;
+        if(this.sockets.request) {
+            this.sockets.request.destroy(false);
+            delete this.sockets.request;
         };
-        this.state = ConnectionStates.Closed;
+        this.status = ConnectionStates.Closed;
     };
 
     endSocket() {
-        if(!this.socket) return false;
+        if(!this.sockets.tls) return false;
         this.performCloseState();
-        this.socket.ended = true;
-        this.socket.end();
+        this.sockets.tls.ended = true;
+        this.sockets.tls.end();
         return true;
     };
 
@@ -363,20 +414,20 @@ export class WebSocket {
      */
 
     write(opcode, data, closeCode) {
-        if(this.state != ConnectionStates.Open || !this.socket?.writable) return false;
+        if(this.status != ConnectionStates.Open || !this.sockets.tls?.writable) return false;
         let frame = new OutboundFrame(opcode, data, closeCode);
-        this.socket.write(frame.prepare());
+        this.sockets.tls.write(frame.prepare());
         return true;
     };
 
     handleSocketData(data) {
-        if(this.state === ConnectionStates.Closed) return;
-        this.bufferList.write(data);
+        if(this.status === ConnectionStates.Closed) return;
+        this.frames.bufferList.write(data);
         this.handleFrames();
     };
 
     emitMessage(frame) {
-        if(this.asyncIterator) {
+        if(this.options.asyncIterator) {
             messageQueue.push(frame);
             onMessage?.();
         }
@@ -389,10 +440,10 @@ export class WebSocket {
     };
 
     emitClose(code = 1005, reason) {
-        clearTimeout(this.closeTimeout);
-        clearTimeout(this.timeout);
+        clearTimeout(this.timers.close);
+        clearTimeout(this.timers.open);
         if(!reason?.length) reason = Buffer.from(DefaultCloseDescriptions[code] || '');
-        if(this.asyncIterator) onClose?.(new CloseError(code, reason))
+        if(this.options.asyncIterator) onClose?.(new CloseError(code, reason))
         else /**
         * Gets Emitted when The WebSocket gets Closed.
         * @event close
@@ -403,7 +454,7 @@ export class WebSocket {
     };
 
     emitFailure(reason) {
-        if(this.asyncIterator) onClose?.(new SocketError(reason))
+        if(this.options.asyncIterator) onClose?.(new SocketError(reason))
         else /**
         * Gets Emitted when The WebSocket has an issue with The Connection.
         * @event failure
@@ -413,9 +464,9 @@ export class WebSocket {
     };
 
     handleFrames() {
-        let frame = this.currentFrame;
-        if (!frame.push(this.bufferList)) return;
-        this.currentFrame = new BaseFrame(this.frameHeader);
+        let frame = this.frames.current;
+        if (!frame.push(this.frames.bufferList)) return;
+        this.frames.current = new BaseFrame(this.frames.header);
         /**
          * Gets Emitted when The WebSocket receives a Frame.
          * @event frame
@@ -438,12 +489,13 @@ export class WebSocket {
                     delete this.closeReject;
                     delete this.closeResolve;
                 };
-                this.endSocket();
                 let validation = this.validateCloseCode(frame.code);
                 if(validation != true) {
                     frame.code = 1002;
                     frame.reason = validation;
                 };
+                this.write(OPCodes.SocketClose, frame.reason, frame.code);
+                this.endSocket();
                 this.emitClose(frame.code, frame.reason);
                 break;
             case OPCodes.Ping:
@@ -467,21 +519,21 @@ export class WebSocket {
             default:
                 return this.abort('Unknown OPCode', 1002);
         };
-        if (this.bufferList.length > 0) setImmediate(this.handleFramesBind);
+        if (this.frames.bufferList.length > 0) setImmediate(this.handleFramesBind);
     };
 
     addListener(event, callback) {
-        this.events[event] = callback;
+        this.options.events[event] = callback;
         return this;
     };
 
     removeListener(event) {
-        delete this.events[event];
+        delete this.options.events[event];
         return this;
     };
 
     removeAllListeners() {
-        this.events = {};
+        this.options.events = {};
         return this;
     };
 
@@ -494,7 +546,7 @@ export class WebSocket {
     };
 
     dispatchEvent(event, ...args) {
-        this.events[event]?.(...args);
+        this.options.events[event]?.(...args);
     };
 
     emit(event, ...args) {
@@ -509,7 +561,7 @@ export class WebSocket {
      */
 
     async *incoming() {
-        if(!this.asyncIterator) throw new Error('Cannot Use WebSocket#incoming() without asyncIterator: true.');
+        if(!this.options.asyncIterator) throw new Error('Cannot Use WebSocket#incoming() without asyncIterator: true.');
         while(true) {
             await incomingLock;
             while(messageQueue.length) yield messageQueue.shift();
