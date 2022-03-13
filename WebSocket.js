@@ -300,6 +300,7 @@ export class WebSocket {
         if(isNaN(code)) return 'The Close Code Must be a Number.';
         if(code < 1000 || code >= 5000) return 'Out of The Allowed Range - Cannot be below 1000 or above 5000.'
         else if(code >= 1000 && code < 2000) {
+            if(code >= 1016) return '1xxx Close Codes are Only Allowed in The Range from 1000 to 1015.';
             switch(code) {
                 case 1004:
                 case 1005:
@@ -308,7 +309,7 @@ export class WebSocket {
                 default:
                     return true;
             };
-        } else if(code >= 2000 && code < 3000) return 'The Close Codes between 1000 and 2000 are reserved by The WebSocket Protocol.'
+        } else if(code >= 2000 && code < 3000) return 'The Close Codes between 2000 and 3000 are reserved by The WebSocket Protocol.'
         else if(code >= 3000 && code < 5000) return true;
         return 'Unknown Close Code.';
     };
