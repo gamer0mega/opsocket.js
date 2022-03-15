@@ -17,6 +17,7 @@ const BinaryHelpers = {
 };
 
 const OPCodes = {
+    Continuation: 0x0,
     TextMessage: 0x1,
     BinaryMessage: 0x2,
     SocketClose: 0x8,

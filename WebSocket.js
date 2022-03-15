@@ -474,6 +474,9 @@ export class WebSocket {
          */
         this.dispatchEvent('frame', frame);
         switch(frame.opcode) {
+            case OPCodes.Continuation:
+                // Temporarily Ignore
+                break;
             case OPCodes.TextMessage:
                 frame = new DataFrame(frame, DataTypes.Text);
                 this.emitMessage(frame);
@@ -517,7 +520,7 @@ export class WebSocket {
                 this.dispatchEvent('pong', frame.data);
                 break;
             default:
-                return this.abort('Unknown OPCode', 1002);
+                break;
         };
         if (this.frames.bufferList.length > 0) setImmediate(this.handleFramesBind);
     };
